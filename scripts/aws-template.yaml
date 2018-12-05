@@ -1,0 +1,301 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Services
+
+Globals:
+    Api:
+        Cors:
+            AllowHeaders: "'Accept, Authorization, Content-Type'"
+            AllowOrigin:
+                Fn::Sub: ["'http://${WebBucket}.${Endpoint}'", {Endpoint: !FindInMap [RegionMap, !Ref "AWS::Region", S3WebsiteEndpoint]}]
+
+Mappings:
+    RegionMap:
+        ap-northeast-1:
+            S3HostedZoneId: Z2M4EHUR26P7ZW
+            S3WebsiteEndpoint: s3-website-ap-northeast-1.amazonaws.com
+        ap-southeast-1:
+            S3HostedZoneId: Z3O0J2DXBE1FTB
+            S3WebsiteEndpoint: s3-website-ap-southeast-1.amazonaws.com
+        ap-southeast-2:
+            S3HostedZoneId: Z1WCIGYICN2BYD
+            S3WebsiteEndpoint: s3-website-ap-southeast-2.amazonaws.com
+        eu-west-1:
+            S3HostedZoneId: Z1BKCTXD74EZPE
+            S3WebsiteEndpoint: s3-website-eu-west-1.amazonaws.com
+        sa-east-1:
+            S3HostedZoneId: Z31GFT0UA1I2HV
+            S3WebsiteEndpoint: s3-website-sa-east-1.amazonaws.com
+        us-east-1:
+            S3HostedZoneId: Z3AQBSTGFYJSTF
+            S3WebsiteEndpoint: s3-website-us-east-1.amazonaws.com
+        us-west-1:
+            S3HostedZoneId: Z2F56UZL2M1ACD
+            S3WebsiteEndpoint: s3-website-us-west-1.amazonaws.com
+        us-west-2:
+            S3HostedZoneId: Z3BJ6K6RIION7M
+            S3WebsiteEndpoint: s3-website-us-west-2.amazonaws.com
+
+Parameters:
+    Application:
+        Type: String
+        Default: bom-weather-api
+
+Resources:
+    LambdaExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    Effect: Allow
+                    Principal:
+                        Service: lambda.amazonaws.com
+                    Action: sts:AssumeRole
+            Path: '/'
+            Policies:
+                -
+                    PolicyName: root
+                    PolicyDocument:
+                        Version: '2012-10-17'
+                        Statement:
+                            -
+                                Effect: Allow
+                                Action:
+                                    - "cloudwatch:GetMetricStatistics"
+                                Resource: "*"
+                            -
+                                Effect: Allow
+                                Action:
+                                    - "dynamodb:PutItem"
+                                    - "dynamodb:GetItem"
+                                    - "dynamodb:UpdateItem"
+                                    - "dynamodb:Scan"
+                                Resource: "*"
+                            -
+                                Effect: Allow
+                                Action:
+                                    - "logs:CreateLogGroup"
+                                    - "logs:CreateLogStream"
+                                    - "logs:PutLogEvents"
+                                    - "logs:DescribeLogStreams"
+                                Resource: "arn:aws:logs:*:*:*"
+                            -
+                                Sid: "GetAndFetchItemsFromDeployBucket"
+                                Effect: Allow
+                                Action:
+                                    - "s3:GetObject"
+                                    - "s3:PutObject"
+                                    - "s3:PutObjectAcl"
+                                Resource:
+                                    'Fn::Join':
+                                        - ''
+                                        -
+                                            - 'arn:aws:s3:::deploy-'
+                                            - Ref: 'AWS::AccountId'
+                                            - '-'
+                                            - Ref: 'AWS::Region'
+                            -
+                                Effect: Allow
+                                Action:
+                                    - 'lambda:InvokeFunction'
+                                Resource:
+                                    'Fn::Join':
+                                        - ''
+                                        -
+                                            - 'arn:aws:lambda:'
+                                            - Ref: 'AWS::Region'
+                                            - ':'
+                                            - Ref: 'AWS::AccountId'
+                                            - ':function:'
+                                            - Ref: 'Application'
+
+    LambdaFunction:
+        Type: AWS::Serverless::Function
+        Properties:
+            FunctionName:
+                'Fn::Join':
+                    - '-'
+                    -
+                        - !Sub ${AWS::StackName}
+                        - Ref: 'Application'
+            Handler: main
+            Runtime: go1.x
+            CodeUri:
+                Bucket:
+                    'Fn::Join':
+                        - ''
+                        -
+                            - 'deploy-'
+                            - Ref: 'AWS::AccountId'
+                            - '-'
+                            - Ref: 'AWS::Region'
+                Key:
+                    'Fn::Join':
+                        - '-'
+                        -
+                            - Ref: 'Application'
+                            - 'bwa-main.zip'
+            MemorySize: 128
+            Timeout: 20
+            Role: !GetAtt LambdaExecutionRole.Arn
+            Environment:
+                Variables:
+                    GIN_MODE: release
+                    WEATHER_TABLE_NAME: !Ref WeatherDynamoTable
+
+    GatewayRestApi:
+        Type: AWS::ApiGateway::RestApi
+        Properties:
+            Name:
+                'Fn::Join':
+                    - '-'
+                    -
+                        - !Sub ${AWS::StackName}
+                        - Ref: 'Application'
+            Body:
+                swagger: "2.0"
+                info:
+                    version: "1.0"
+                    title:
+                         'Fn::Join':
+                            - '-'
+                            -
+                                - 'rest-api'
+                                - Ref: 'Application'
+                paths:
+                    /{proxy+}:
+                        x-amazon-apigateway-any-method:
+                            consumes:
+                                - application/json
+                            produces:
+                                - application/json
+                            responses: {}
+                            x-amazon-apigateway-integration:
+                                uri:
+                                    Fn::Join:
+                                        - ""
+                                        -
+                                            - "arn:aws:apigateway:"
+                                            - !Ref AWS::Region
+                                            - ":lambda:path/2015-03-31/functions/"
+                                            - !GetAtt LambdaFunction.Arn
+                                            - "/invocations"
+                                passthroughBehavior: "when_no_match"
+                                httpMethod: "POST"
+                                type: "aws_proxy"
+
+    GatewayApiDeploymentProd:
+        Type: AWS::ApiGateway::Deployment
+        Properties:
+            Description: Prod deployment for API
+            RestApiId: !Ref GatewayRestApi
+            StageName: prod
+            StageDescription:
+                MethodSettings:
+                    -
+                        DataTraceEnabled: true
+                        HttpMethod: "*"
+                        LoggingLevel: "INFO"
+                        MetricsEnabled: true
+                        ResourcePath: "/*"
+
+    LambdaFunctionPermissions:
+        Type: AWS::Lambda::Permission
+        Properties:
+            Action: lambda:InvokeFunction
+            FunctionName: !Ref LambdaFunction
+            Principal: apigateway.amazonaws.com
+            SourceArn:
+                Fn::Join:
+                - ""
+                -
+                    - "arn:aws:execute-api:"
+                    - !Ref AWS::Region
+                    - ":"
+                    - !Ref AWS::AccountId
+                    - ":"
+                    - !Ref GatewayRestApi
+                    - "/*"
+
+    PopulateWeatherLambdaFunction:
+        Type: AWS::Serverless::Function
+        Properties:
+            FunctionName:
+                'Fn::Join':
+                    - '-'
+                    -
+                        - !Sub ${AWS::StackName}
+                        - 'populate-weather'
+            Handler: main
+            Runtime: go1.x
+            CodeUri:
+                Bucket:
+                    'Fn::Join':
+                        - ''
+                        -
+                            - 'deploy-'
+                            - Ref: 'AWS::AccountId'
+                            - '-'
+                            - Ref: 'AWS::Region'
+                Key:
+                    'Fn::Join':
+                        - '-'
+                        -
+                            - Ref: 'Application'
+                            - 'populate-weather.zip'
+            MemorySize: 128
+            Timeout: 300
+            Role: !GetAtt LambdaExecutionRole.Arn
+
+    PopulateWeatherLambdaFunctionScheduledRule:
+        Type: AWS::Events::Rule
+        Properties:
+            Description: "Run populate weather lambda function every day"
+            ScheduleExpression: "cron(30 2 * * ? *)"
+            State: "ENABLED"
+            Targets:
+                -
+                    Arn:
+                        Fn::GetAtt:
+                            - "PopulateWeatherLambdaFunction"
+                            - "Arn"
+                    Id: "PopulateWeatherLambdaFunctionId"
+
+    PopulateWeatherPermissionForEventsToInvokeLambda:
+        Type: "AWS::Lambda::Permission"
+        Properties:
+            FunctionName:
+                Ref: "PopulateWeatherLambdaFunction"
+            Action: "lambda:InvokeFunction"
+            Principal: "events.amazonaws.com"
+            SourceArn:
+                Fn::GetAtt:
+                    - "PopulateWeatherLambdaFunctionScheduledRule"
+                    - "Arn"
+
+    WeatherDynamoTable:
+        Type: AWS::DynamoDB::Table
+        Properties:
+            AttributeDefinitions:
+                -
+                    AttributeName: id
+                    AttributeType: S
+            KeySchema:
+                -
+                    AttributeName: id
+                    KeyType: HASH
+            ProvisionedThroughput:
+                ReadCapacityUnits: 1
+                WriteCapacityUnits: 1
+
+Outputs:
+    ApiUrl:
+        Description: URL for api
+        Value: !Sub 'https://${GatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
+
+    ApiFunction:
+        Value: !Ref LambdaFunction
+
+    PopulateWeatherFunction:
+        Value: !Ref PopulateWeatherLambdaFunction

@@ -1,0 +1,6 @@
+bom-weather-api
+bom-weather-api.exe
+main
+node_modules/
+package-lock.json
+out.yml
