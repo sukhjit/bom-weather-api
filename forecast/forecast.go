@@ -176,3 +176,17 @@ func SaveRecord(asset *Forecast) error {
 
 	return err
 }
+
+// DeleteRecord will delete an item by given id
+func DeleteRecord(id string) error {
+	_, err := db.DeleteItem(&dynamodb.DeleteItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			"id": {
+				S: aws.String(id),
+			},
+		},
+	})
+
+	return err
+}
