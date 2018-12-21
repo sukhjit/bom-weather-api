@@ -95,6 +95,35 @@ func GetItemsBySecondaryID(location, date string) ([]*Forecast, error) {
 	return items, nil
 }
 
+// GetItemsOlderThanDate return list of item older than given date
+func GetItemsOlderThanDate(date string) ([]*Forecast, error) {
+	filt := expression.Name("date").LessThan(expression.Value(date))
+
+	expr, err := expression.NewBuilder().WithFilter(filt).Build()
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := db.Scan(&dynamodb.ScanInput{
+		TableName:                 aws.String(tableName),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		FilterExpression:          expr.Filter(),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	var items []*Forecast
+	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &items)
+	if err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // SaveRecord to dynamodb
 func SaveRecord(asset *Forecast) error {
 	item := map[string]*dynamodb.AttributeValue{
