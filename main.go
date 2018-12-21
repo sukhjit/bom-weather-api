@@ -106,7 +106,7 @@ func weatherHandler(c *gin.Context) {
 
 	// date provided
 	dateStr := c.DefaultQuery("date", "")
-	if len(dateStr) == 8 {
+	if len(dateStr) == len(compactDateLayout) {
 		t, err := time.Parse(compactDateLayout, dateStr)
 		if err != nil {
 			clientError(c, http.StatusBadRequest, "date format is incorrect")
