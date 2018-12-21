@@ -130,14 +130,15 @@ func handler() error {
 
 	today := time.Now()
 	tomorrow := today.AddDate(0, 0, 1)
+	tomorrowPlus := today.AddDate(0, 0, 2)
 
-	todayStr := today.Format("2006-01-02")
-	tomorrowStr := tomorrow.Format("2006-01-02")
+	tomorrowStr := tomorrow.Format(dateFormat)
+	tomorrowPlusStr := tomorrowPlus.Format(dateFormat)
 
 	counter := 0
 	for _, row := range finalList {
-		if row.Date != todayStr && row.Date != tomorrowStr {
-			// only write today's, and tomorrow's data, to keep writes to minimum
+		if row.Date != tomorrowStr && row.Date != tomorrowPlusStr {
+			// only write tomorrow's and day after tomorrow's data, to keep writes to minimum
 			continue
 		}
 
