@@ -9,10 +9,15 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/awslabs/aws-lambda-go-api-proxy/gin"
+	ginadapter "github.com/awslabs/aws-lambda-go-api-proxy/gin"
 	"github.com/gin-gonic/gin"
 	"github.com/sukhjit/bom-weather-api/forecast"
 	"github.com/sukhjit/bom-weather-api/util"
+)
+
+const (
+	stdDateLayout     = "2006-01-02"
+	compactDateLayout = "20060102"
 )
 
 var (
@@ -85,11 +90,11 @@ func statusHandler(c *gin.Context) {
 }
 
 func weatherHandler(c *gin.Context) {
-	date := time.Now().Format("2006-01-02")
+	date := time.Now().Format(stdDateLayout)
 	location := c.Param("location")
 	state := ""
 
-	// if state provided
+	// state provided
 	exploded := strings.Split(location, ",")
 	if len(exploded) == 2 {
 		location = strings.Trim(exploded[0], " ")
@@ -97,6 +102,18 @@ func weatherHandler(c *gin.Context) {
 		if len(sn) > 0 {
 			state = sn
 		}
+	}
+
+	// date provided
+	dateStr := c.DefaultQuery("date", "")
+	if len(dateStr) == 8 {
+		t, err := time.Parse(compactDateLayout, dateStr)
+		if err != nil {
+			clientError(c, http.StatusBadRequest, "date format is incorrect")
+			return
+		}
+
+		date = t.Format(stdDateLayout)
 	}
 
 	items, err := forecast.GetItemsBySecondaryID(location, date)
